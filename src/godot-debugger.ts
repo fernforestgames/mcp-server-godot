@@ -178,16 +178,8 @@ export class GodotRemoteDebugger extends EventEmitter {
   private generateScreenshotScript(format: string, quality?: number): string {
     const qualityParam = format === 'jpg' && quality !== undefined ? `, ${quality / 100.0}` : '';
 
-    // Wrap in an immediately-executed lambda to make it a single expression
-    return `(func():
-        var viewport = get_viewport()
-        var image = viewport.get_texture().get_image()
-        var buffer = image.save_${format}_to_buffer(${qualityParam})
-        print("SCREENSHOT_START")
-        print(Marshalls.raw_to_base64(buffer))
-        print("SCREENSHOT_END")
-        return "screenshot_complete"
-    ).call()`;
+    // Try a simpler approach - use print as the main expression, but with side effects
+    return `print("SCREENSHOT_START") or print(Marshalls.raw_to_base64(get_viewport().get_texture().get_image().save_${format}_to_buffer(${qualityParam}))) or print("SCREENSHOT_END") or "done"`;
   }
 
   private async sendEvaluateCommand(expression: string): Promise<void> {
