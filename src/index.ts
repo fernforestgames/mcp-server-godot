@@ -171,18 +171,15 @@ server.registerTool("capture_screenshot",
         // Find Godot windows
         const windows = Window.all();
         const godotWindows = windows.filter(window => {
-          // Look for Godot-related window titles
-          const title = window.title || "";
-          return title.toLowerCase().includes("godot") ||
-                 title.toLowerCase().includes("game") ||
-                 title.includes("Godot_") ||
-                 title.includes("Engine");
+          // Look for Godot application by app name instead of title
+          const appName = window.appName || "";
+          return appName.toLowerCase().includes("godot");
         });
 
         if (godotWindows.length === 0) {
           return {
             content: [{ type: "text", text: "No Godot windows found. Available windows:\n" +
-              windows.map(w => `- ${w.title || 'Untitled'} (${w.width}x${w.height})`).join("\n") }]
+              windows.map(w => `- ${w.title || 'Untitled'} [${w.appName || 'Unknown'}] (${w.width}x${w.height})`).join("\n") }]
           };
         }
 
