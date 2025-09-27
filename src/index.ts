@@ -174,7 +174,16 @@ server.registerResource("runs_list", "godot://runs/",
   }
 );
 
-server.registerResource("project_stdout", new ResourceTemplate("godot://runs/{runId}/stdout", { list: undefined }),
+server.registerResource("project_stdout", new ResourceTemplate("godot://runs/{runId}/stdout", {
+  list: async () => {
+    const resources = Array.from(runningProjects.keys()).map(runId => ({
+      uri: `godot://runs/${runId}/stdout`,
+      name: `stdout-${runId}`,
+      mimeType: "text/plain"
+    }));
+    return { resources };
+  }
+}),
   {
     title: "Project Standard Output",
     description: "Get the standard output for a specific project run",
@@ -196,7 +205,16 @@ server.registerResource("project_stdout", new ResourceTemplate("godot://runs/{ru
   }
 );
 
-server.registerResource("project_stderr", new ResourceTemplate("godot://runs/{runId}/stderr", { list: undefined }),
+server.registerResource("project_stderr", new ResourceTemplate("godot://runs/{runId}/stderr", {
+  list: async () => {
+    const resources = Array.from(runningProjects.keys()).map(runId => ({
+      uri: `godot://runs/${runId}/stderr`,
+      name: `stderr-${runId}`,
+      mimeType: "text/plain"
+    }));
+    return { resources };
+  }
+}),
   {
     title: "Project Standard Error",
     description: "Get the standard error for a specific project run",
@@ -218,7 +236,16 @@ server.registerResource("project_stderr", new ResourceTemplate("godot://runs/{ru
   }
 );
 
-server.registerResource("project_status", new ResourceTemplate("godot://runs/{runId}/status", { list: undefined }),
+server.registerResource("project_status", new ResourceTemplate("godot://runs/{runId}/status", {
+  list: async () => {
+    const resources = Array.from(runningProjects.keys()).map(runId => ({
+      uri: `godot://runs/${runId}/status`,
+      name: `status-${runId}`,
+      mimeType: "application/json"
+    }));
+    return { resources };
+  }
+}),
   {
     title: "Project Status",
     description: "Get the status information for a specific project run",
