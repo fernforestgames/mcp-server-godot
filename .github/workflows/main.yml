@@ -1,4 +1,4 @@
-name: CI
+name: Main
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: release
-    needs: test
+    needs: build
 
     permissions:
       contents: read
