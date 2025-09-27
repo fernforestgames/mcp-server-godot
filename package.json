@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "MCP server for Godot integration",
   "homepage": "https://github.com/fernforestgames/mcp-server-godot",
+  "repository": "github:fernforestgames/mcp-server-godot",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
