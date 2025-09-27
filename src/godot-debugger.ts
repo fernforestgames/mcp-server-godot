@@ -166,10 +166,20 @@ export class GodotRemoteDebugger extends EventEmitter {
       this.once('screenshot_data', onScreenshotData);
       this.once('error', onError);
 
-      // Send the evaluate command using proper Variant encoding
-      console.error('Sending evaluate command with script:', script);
-      this.sendEvaluateCommand(script).catch((error) => {
-        console.error('Failed to send evaluate command:', error);
+      // First send break command to pause execution, then evaluate
+      console.error('Sending break command to pause execution');
+      this.sendBreakCommand().then(() => {
+        console.error('Break command sent, waiting before evaluate...');
+        // Wait a bit for the break to take effect
+        setTimeout(() => {
+          console.error('Sending evaluate command with script:', script);
+          this.sendEvaluateCommand(script).catch((error) => {
+            console.error('Failed to send evaluate command:', error);
+            reject(error);
+          });
+        }, 500);
+      }).catch((error) => {
+        console.error('Failed to send break command:', error);
         reject(error);
       });
     });
@@ -178,8 +188,19 @@ export class GodotRemoteDebugger extends EventEmitter {
   private generateScreenshotScript(format: string, quality?: number): string {
     const qualityParam = format === 'jpg' && quality !== undefined ? `, ${quality / 100.0}` : '';
 
-    // Try a simpler approach - use print as the main expression, but with side effects
-    return `print("SCREENSHOT_START") or print(Marshalls.raw_to_base64(get_viewport().get_texture().get_image().save_${format}_to_buffer(${qualityParam}))) or print("SCREENSHOT_END") or "done"`;
+    // Test with just returning a simple value instead of calling print
+    return `"screenshot_test"`;
+  }
+
+  private async sendBreakCommand(): Promise<void> {
+    if (!this.socket || !this.connected) {
+      throw new Error('Not connected to Godot debugger');
+    }
+
+    // Send break command to pause execution
+    const messageArray = ["break", 0, []];
+    const encodedMessage = await this.encodeVariantMessage(messageArray);
+    this.socket.write(encodedMessage);
   }
 
   private async sendEvaluateCommand(expression: string): Promise<void> {
