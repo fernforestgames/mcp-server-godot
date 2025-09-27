@@ -1,8 +1,9 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ChildProcess, spawn } from "child_process";
-import { z } from "zod";
 import { randomUUID } from "crypto";
+import { z } from "zod";
+import { DebugPortManager, GodotRemoteDebugger, ScreenshotOptions } from "./godot-debugger.js";
 
 // Get Godot project path from command line arguments
 const projectPath = process.argv[2];
@@ -34,10 +35,13 @@ interface ProjectRun {
   exitCode?: number;
   startTime: Date;
   args?: string[];
+  debugPort?: number;
+  debugger?: GodotRemoteDebugger;
 }
 
 // Storage for running projects
 const runningProjects = new Map<string, ProjectRun>();
+const debugPortManager = DebugPortManager.getInstance();
 
 // Tool to run a Godot project
 server.registerTool("run_project",
@@ -54,13 +58,24 @@ server.registerTool("run_project",
     const runId = randomUUID();
 
     try {
-      const godotArgs = ["--path", targetProjectPath];
+      // Allocate a debug port
+      const debugPort = debugPortManager.allocatePort();
+
+      const godotArgs = ["--path", targetProjectPath, "--remote-debug", `tcp://127.0.0.1:${debugPort}`];
       if (args) {
         godotArgs.push(...args);
       }
 
       const process = spawn(godotPath, godotArgs, {
         stdio: ["inherit", "pipe", "pipe"]
+      });
+
+      // Create debugger instance and start server
+      const godotDebugger = new GodotRemoteDebugger({ port: debugPort });
+
+      // Start the debug server (don't wait for connection yet)
+      godotDebugger.startServer().catch(() => {
+        // Ignore startup errors, we'll handle them when screenshot is requested
       });
 
       const projectRun: ProjectRun = {
@@ -71,6 +86,8 @@ server.registerTool("run_project",
         stderr: [],
         status: 'running',
         startTime: new Date(),
+        debugPort,
+        debugger: godotDebugger,
         ...(args && { args })
       };
 
@@ -92,6 +109,16 @@ server.registerTool("run_project",
       process.on("exit", (code) => {
         projectRun.status = 'exited';
         projectRun.exitCode = code || 0;
+
+        // Clean up debugger connection and release port
+        if (projectRun.debugger) {
+          projectRun.debugger.disconnect().catch(() => {
+            // Ignore disconnect errors on exit
+          });
+        }
+        if (projectRun.debugPort) {
+          debugPortManager.releasePort(projectRun.debugPort);
+        }
       });
 
       // Handle process errors
@@ -99,6 +126,16 @@ server.registerTool("run_project",
         projectRun.stderr.push(`Failed to start Godot: ${error.message}`);
         projectRun.status = 'exited';
         projectRun.exitCode = 1;
+
+        // Clean up debugger connection and release port on error
+        if (projectRun.debugger) {
+          projectRun.debugger.disconnect().catch(() => {
+            // Ignore disconnect errors on error
+          });
+        }
+        if (projectRun.debugPort) {
+          debugPortManager.releasePort(projectRun.debugPort);
+        }
       });
 
       return {
@@ -136,13 +173,84 @@ server.registerTool("stop_project",
     }
 
     try {
+      // Clean up debugger connection first
+      if (projectRun.debugger) {
+        await projectRun.debugger.disconnect().catch(() => {
+          // Ignore disconnect errors when stopping
+        });
+      }
+
       projectRun.process.kill();
+
       return {
         content: [{ type: "text", text: `Stopped project with run ID: ${runId}` }]
       };
     } catch (error) {
       return {
         content: [{ type: "text", text: `Failed to stop project ${runId}: ${error}` }]
+      };
+    }
+  }
+);
+
+// Tool to capture screenshot from a running Godot project
+server.registerTool("capture_screenshot",
+  {
+    title: "Capture Screenshot",
+    description: "Capture a screenshot from a running Godot project using remote debugging",
+    inputSchema: {
+      runId: z.string().describe("The run ID of the project to capture screenshot from"),
+      format: z.enum(["png", "jpg"]).optional().describe("Image format (png or jpg, defaults to png)"),
+      quality: z.number().min(1).max(100).optional().describe("JPEG quality (1-100, only for jpg format)")
+    }
+  },
+  async ({ runId, format = "png", quality }) => {
+    const projectRun = runningProjects.get(runId);
+    if (!projectRun) {
+      return {
+        content: [{ type: "text", text: `No project found with run ID: ${runId}` }]
+      };
+    }
+
+    if (projectRun.status === 'exited') {
+      return {
+        content: [{ type: "text", text: `Project with run ID ${runId} has already exited` }]
+      };
+    }
+
+    if (!projectRun.debugger) {
+      return {
+        content: [{ type: "text", text: `No debugger available for project ${runId}` }]
+      };
+    }
+
+    try {
+      // Wait for Godot to connect to our debug server
+      if (!projectRun.debugger.isConnected()) {
+        await projectRun.debugger.waitForConnection(10000); // 10 second timeout
+      }
+
+      // Capture screenshot
+      const screenshotOptions: ScreenshotOptions = { format };
+      if (format === 'jpg' && quality !== undefined) {
+        screenshotOptions.quality = quality;
+      }
+
+      const imageBuffer = await projectRun.debugger.captureScreenshot(screenshotOptions);
+
+      // Return as image content block
+      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+
+      return {
+        content: [{
+          type: "image",
+          data: imageBuffer.toString('base64'),
+          mimeType: mimeType
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Failed to capture screenshot from project ${runId}: ${error}` }]
       };
     }
   }
@@ -281,6 +389,11 @@ server.registerResource("project_status", new ResourceTemplate("godot://runs/{ru
 process.on("exit", () => {
   for (const projectRun of runningProjects.values()) {
     if (projectRun.status === 'running') {
+      if (projectRun.debugger) {
+        projectRun.debugger.disconnect().catch(() => {
+          // Ignore disconnect errors on exit
+        });
+      }
       projectRun.process.kill();
     }
   }
@@ -289,6 +402,11 @@ process.on("exit", () => {
 process.on("SIGINT", () => {
   for (const projectRun of runningProjects.values()) {
     if (projectRun.status === 'running') {
+      if (projectRun.debugger) {
+        projectRun.debugger.disconnect().catch(() => {
+          // Ignore disconnect errors on exit
+        });
+      }
       projectRun.process.kill();
     }
   }
