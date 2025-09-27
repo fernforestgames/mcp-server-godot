@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -17,5 +24,28 @@ jobs:
           cache: "npm"
 
       - run: npm ci
-      - run: npm run lint
       - run: npm run build
+      - run: npm run lint
+
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: release
+    needs: build
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
