@@ -1,0 +1,23 @@
+[gd_scene load_steps=3 format=3 uid="uid://dblq3fxfwb7ax"]
+
+[ext_resource type="Script" uid="uid://ds0t6dp0y6v6l" path="res://main.gd" id="1_0xm2m"]
+[ext_resource type="Texture2D" uid="uid://cy84pliwekjlh" path="res://godot.png" id="1_ig7tw"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_0xm2m")
+
+[node name="Godot" type="Sprite2D" parent="."]
+position = Vector2(227, 183)
+texture = ExtResource("1_ig7tw")
+
+[node name="Godot2" type="Sprite2D" parent="."]
+position = Vector2(484, 112)
+texture = ExtResource("1_ig7tw")
+
+[node name="Godot3" type="Sprite2D" parent="."]
+position = Vector2(410, 503)
+texture = ExtResource("1_ig7tw")
+
+[node name="Godot4" type="Sprite2D" parent="."]
+position = Vector2(892, 338)
+texture = ExtResource("1_ig7tw")
