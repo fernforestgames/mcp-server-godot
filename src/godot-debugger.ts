@@ -167,14 +167,27 @@ export class GodotRemoteDebugger extends EventEmitter {
       this.once('error', onError);
 
       // Send the evaluate command using proper Variant encoding
-      this.sendEvaluateCommand(script);
+      console.error('Sending evaluate command with script:', script);
+      this.sendEvaluateCommand(script).catch((error) => {
+        console.error('Failed to send evaluate command:', error);
+        reject(error);
+      });
     });
   }
 
   private generateScreenshotScript(format: string, quality?: number): string {
     const qualityParam = format === 'jpg' && quality !== undefined ? `, ${quality / 100.0}` : '';
 
-    return `var viewport = get_viewport(); var image = viewport.get_texture().get_image(); var buffer = image.save_${format}_to_buffer(${qualityParam}); print("SCREENSHOT_START"); print(Marshalls.raw_to_base64(buffer)); print("SCREENSHOT_END")`;
+    // Wrap in an immediately-executed lambda to make it a single expression
+    return `(func():
+        var viewport = get_viewport()
+        var image = viewport.get_texture().get_image()
+        var buffer = image.save_${format}_to_buffer(${qualityParam})
+        print("SCREENSHOT_START")
+        print(Marshalls.raw_to_base64(buffer))
+        print("SCREENSHOT_END")
+        return "screenshot_complete"
+    ).call()`;
   }
 
   private async sendEvaluateCommand(expression: string): Promise<void> {
@@ -281,6 +294,10 @@ export class GodotRemoteDebugger extends EventEmitter {
             this.parseScreenshotOutput(outputText);
           }
         }
+      } else {
+        console.error('Received non-array message or malformed array:', typeof decodedMessage, decodedMessage);
+        // This might be a single value response - not the protocol format we expect
+        // Could be a connection handshake, error code, or invalid state
       }
     } catch (error) {
       console.error('Error parsing message:', error);
@@ -325,6 +342,10 @@ export class GodotRemoteDebugger extends EventEmitter {
       });
 
       godot.on('close', (code) => {
+        console.error('Variant decoder exit code:', code);
+        console.error('Variant decoder stdout:', stdout);
+        console.error('Variant decoder stderr:', stderr);
+
         if (code !== 0) {
           reject(new Error(`Variant decoding failed: ${stderr}`));
           return;
@@ -332,9 +353,11 @@ export class GodotRemoteDebugger extends EventEmitter {
 
         // Look for JSON: output
         const lines = stdout.split('\n');
+        console.error('Variant decoder output lines:', lines);
         for (const line of lines) {
           if (line.startsWith('JSON:')) {
             const jsonData = line.substring(5);
+            console.error('Found JSON data:', jsonData);
             try {
               const parsed = JSON.parse(jsonData);
               resolve(parsed);
