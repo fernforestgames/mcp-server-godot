@@ -1,6 +1,6 @@
 {
   "name": "@fernforestgames/mcp-server-godot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for Godot integration",
   "homepage": "https://github.com/fernforestgames/mcp-server-godot",
   "repository": "github:fernforestgames/mcp-server-godot",
