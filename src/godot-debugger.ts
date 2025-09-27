@@ -1,5 +1,7 @@
-import { Socket, Server } from "net";
+import { spawn } from "child_process";
 import { EventEmitter } from "events";
+import { Server, Socket } from "net";
+import { fileURLToPath } from "url";
 
 export interface GodotDebuggerOptions {
   host?: string;
@@ -164,95 +166,214 @@ export class GodotRemoteDebugger extends EventEmitter {
       this.once('screenshot_data', onScreenshotData);
       this.once('error', onError);
 
-      // Send the screenshot command
-      this.sendDebugCommand('script', script);
+      // Send the evaluate command using proper Variant encoding
+      this.sendEvaluateCommand(script);
     });
   }
 
   private generateScreenshotScript(format: string, quality?: number): string {
     const qualityParam = format === 'jpg' && quality !== undefined ? `, ${quality / 100.0}` : '';
 
-    return `
-var viewport = get_viewport()
-var image = viewport.get_texture().get_image()
-var buffer = image.save_${format}_to_buffer(${qualityParam})
-print("SCREENSHOT_START")
-print(Marshalls.raw_to_base64(buffer))
-print("SCREENSHOT_END")
-`;
+    return `var viewport = get_viewport(); var image = viewport.get_texture().get_image(); var buffer = image.save_${format}_to_buffer(${qualityParam}); print("SCREENSHOT_START"); print(Marshalls.raw_to_base64(buffer)); print("SCREENSHOT_END")`;
   }
 
-  private sendDebugCommand(_type: string, data: string): void {
+  private async sendEvaluateCommand(expression: string): Promise<void> {
     if (!this.socket || !this.connected) {
       throw new Error('Not connected to Godot debugger');
     }
 
-    // Godot remote debugger protocol: [message_type:4][message_size:4][message_data]
-    const messageData = Buffer.from(data, 'utf8');
-    const messageType = Buffer.alloc(4);
-    const messageSize = Buffer.alloc(4);
+    // Use the Variant codec to properly encode the message
+    const messageArray = ["evaluate", 0, [expression, 0]];
+    const encodedMessage = await this.encodeVariantMessage(messageArray);
 
-    // Set message type (script execution = 3)
-    messageType.writeUInt32LE(3, 0);
+    this.socket.write(encodedMessage);
+  }
 
-    // Set message size
-    messageSize.writeUInt32LE(messageData.length, 0);
+  private async encodeVariantMessage(messageArray: any[]): Promise<Buffer> {
 
-    // Send the complete message
-    const fullMessage = Buffer.concat([messageType, messageSize, messageData]);
-    this.socket.write(fullMessage);
+    return new Promise((resolve, reject) => {
+      const jsonData = JSON.stringify(messageArray);
+
+      const godotPath = process.env['GODOT_PATH'] || 'godot';
+      const godot = spawn(godotPath, [
+        '--headless',
+        '--script', this.variantCodecPath(),
+        '--action', 'encode',
+        '--data', jsonData
+      ], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      godot.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      godot.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      godot.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Variant encoding failed: ${stderr}`));
+          return;
+        }
+
+        // Look for HEX: output
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('HEX:')) {
+            const hexData = line.substring(4);
+            const buffer = Buffer.from(hexData, 'hex');
+            resolve(buffer);
+            return;
+          }
+        }
+        reject(new Error('No encoded data found in output'));
+      });
+
+      godot.on('error', (error) => {
+        reject(new Error(`Failed to spawn Godot for encoding: ${error}`));
+      });
+    });
   }
 
   private handleData(data: Buffer): void {
     this.messageBuffer = Buffer.concat([this.messageBuffer, data]);
 
-    // Process complete messages
-    while (this.messageBuffer.length >= 8) {
-      const messageType = this.messageBuffer.readUInt32LE(0);
-      const messageSize = this.messageBuffer.readUInt32LE(4);
+    // Process complete messages - Godot protocol: [4 bytes: size][message data]
+    while (this.messageBuffer.length >= 4) {
+      const messageSize = this.messageBuffer.readUInt32LE(0);
 
-      if (this.messageBuffer.length >= 8 + messageSize) {
-        const messageData = this.messageBuffer.subarray(8, 8 + messageSize);
-        this.messageBuffer = this.messageBuffer.subarray(8 + messageSize);
+      if (this.messageBuffer.length >= 4 + messageSize) {
+        const messageData = this.messageBuffer.subarray(4, 4 + messageSize);
+        this.messageBuffer = this.messageBuffer.subarray(4 + messageSize);
 
-        this.handleMessage(messageType, messageData);
+        // Handle message asynchronously (don't await to avoid blocking)
+        this.handleMessage(messageData).catch((error) => {
+          console.error('Error handling message:', error);
+        });
       } else {
         break; // Wait for more data
       }
     }
   }
 
-  private handleMessage(messageType: number, data: Buffer): void {
-    const message = data.toString('utf8');
+  private async handleMessage(messageData: Buffer): Promise<void> {
+    try {
+      // Decode the Variant message using our helper
+      const decodedMessage = await this.decodeVariantMessage(messageData);
+      console.log('Decoded message:', decodedMessage);
 
-    // Look for screenshot data in stdout messages
-    if (messageType === 1) { // stdout message type
-      const lines = message.split('\n');
-      let screenshotStartIndex = -1;
-      let screenshotEndIndex = -1;
+      // Check if this is an output message that might contain our screenshot data
+      if (Array.isArray(decodedMessage) && decodedMessage.length >= 3) {
+        const [messageName, , data] = decodedMessage;
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line && line.trim() === 'SCREENSHOT_START') {
-          screenshotStartIndex = i;
-        } else if (line && line.trim() === 'SCREENSHOT_END') {
-          screenshotEndIndex = i;
-          break;
+        if (messageName === 'output' && Array.isArray(data) && data.length >= 1) {
+          const messages = data[0];
+          if (Array.isArray(messages)) {
+            const outputText = messages.join('\n');
+            this.parseScreenshotOutput(outputText);
+          }
         }
       }
+    } catch (error) {
+      console.log('Error parsing message:', error);
 
-      if (screenshotStartIndex !== -1 && screenshotEndIndex !== -1) {
-        const base64Data = lines.slice(screenshotStartIndex + 1, screenshotEndIndex).join('');
-        try {
-          const imageBuffer = Buffer.from(base64Data, 'base64');
-          this.emit('screenshot_data', imageBuffer);
-        } catch (error) {
-          this.emit('error', new Error(`Failed to decode screenshot data: ${error}`));
+      // Fallback: try to parse as text for our print statements
+      const message = messageData.toString('utf8');
+      this.parseScreenshotOutput(message);
+    }
+
+    this.emit('message', { data: messageData });
+  }
+  
+  private variantCodecPath(): string {
+    const url = new URL('../scripts/variant_codec.gd', import.meta.url);
+    return fileURLToPath(url);
+  }
+
+  private async decodeVariantMessage(messageData: Buffer): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const hexData = 'HEX:' + messageData.toString('hex');
+
+      const godotPath = process.env['GODOT_PATH'] || 'godot';
+      const godot = spawn(godotPath, [
+        '--headless',
+        '--script', this.variantCodecPath(),
+        '--action', 'decode',
+        '--data', hexData
+      ], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      godot.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      godot.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      godot.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Variant decoding failed: ${stderr}`));
+          return;
         }
+
+        // Look for JSON: output
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('JSON:')) {
+            const jsonData = line.substring(5);
+            try {
+              const parsed = JSON.parse(jsonData);
+              resolve(parsed);
+              return;
+            } catch (error) {
+              reject(new Error(`Failed to parse decoded JSON: ${error}`));
+              return;
+            }
+          }
+        }
+        reject(new Error('No decoded data found in output'));
+      });
+
+      godot.on('error', (error) => {
+        reject(new Error(`Failed to spawn Godot for decoding: ${error}`));
+      });
+    });
+  }
+
+  private parseScreenshotOutput(text: string): void {
+    const lines = text.split('\n');
+    let screenshotStartIndex = -1;
+    let screenshotEndIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line && line.trim() === 'SCREENSHOT_START') {
+        screenshotStartIndex = i;
+      } else if (line && line.trim() === 'SCREENSHOT_END') {
+        screenshotEndIndex = i;
+        break;
       }
     }
 
-    this.emit('message', { type: messageType, data: message });
+    if (screenshotStartIndex !== -1 && screenshotEndIndex !== -1) {
+      const base64Data = lines.slice(screenshotStartIndex + 1, screenshotEndIndex).join('');
+      try {
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        this.emit('screenshot_data', imageBuffer);
+      } catch (error) {
+        this.emit('error', new Error(`Failed to decode screenshot data: ${error}`));
+      }
+    }
   }
 
   isConnected(): boolean {
