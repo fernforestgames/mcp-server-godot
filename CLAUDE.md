@@ -46,3 +46,5 @@ npm run lint         # ESLint with TypeScript support
 - Process lifecycle tracking (running/exited status with exit codes)
 - Proper cleanup on server shutdown for all running processes
 - Environment variable $GODOT_PATH contains the path to the `godot` executable
+- All MCP debug logging should be written to stderr, not stdout.
+- To test changes to the MCP server, the user must restart Claude Code. Ask them to do this whenever needed. (Note: no `npm run build` is necessary.)

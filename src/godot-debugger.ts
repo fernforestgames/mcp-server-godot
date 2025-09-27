@@ -265,25 +265,29 @@ export class GodotRemoteDebugger extends EventEmitter {
     try {
       // Decode the Variant message using our helper
       const decodedMessage = await this.decodeVariantMessage(messageData);
-      console.log('Decoded message:', decodedMessage);
+      console.error('Decoded message:', JSON.stringify(decodedMessage));
 
       // Check if this is an output message that might contain our screenshot data
       if (Array.isArray(decodedMessage) && decodedMessage.length >= 3) {
         const [messageName, , data] = decodedMessage;
+        console.error('Message name:', messageName, 'Data:', JSON.stringify(data));
 
         if (messageName === 'output' && Array.isArray(data) && data.length >= 1) {
           const messages = data[0];
+          console.error('Output messages:', JSON.stringify(messages));
           if (Array.isArray(messages)) {
             const outputText = messages.join('\n');
+            console.error('Joined output text:', outputText);
             this.parseScreenshotOutput(outputText);
           }
         }
       }
     } catch (error) {
-      console.log('Error parsing message:', error);
+      console.error('Error parsing message:', error);
 
       // Fallback: try to parse as text for our print statements
       const message = messageData.toString('utf8');
+      console.error('Fallback parsing raw message:', message);
       this.parseScreenshotOutput(message);
     }
 
@@ -351,28 +355,39 @@ export class GodotRemoteDebugger extends EventEmitter {
   }
 
   private parseScreenshotOutput(text: string): void {
+    console.error('Parsing screenshot output:', JSON.stringify(text));
     const lines = text.split('\n');
+    console.error('Split into lines:', lines.length, 'lines');
     let screenshotStartIndex = -1;
     let screenshotEndIndex = -1;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      console.error(`Line ${i}:`, JSON.stringify(line));
       if (line && line.trim() === 'SCREENSHOT_START') {
         screenshotStartIndex = i;
+        console.error('Found SCREENSHOT_START at line', i);
       } else if (line && line.trim() === 'SCREENSHOT_END') {
         screenshotEndIndex = i;
+        console.error('Found SCREENSHOT_END at line', i);
         break;
       }
     }
 
     if (screenshotStartIndex !== -1 && screenshotEndIndex !== -1) {
+      console.error('Extracting screenshot data from lines', screenshotStartIndex + 1, 'to', screenshotEndIndex);
       const base64Data = lines.slice(screenshotStartIndex + 1, screenshotEndIndex).join('');
+      console.error('Base64 data length:', base64Data.length);
       try {
         const imageBuffer = Buffer.from(base64Data, 'base64');
+        console.error('Successfully created image buffer, size:', imageBuffer.length);
         this.emit('screenshot_data', imageBuffer);
       } catch (error) {
+        console.error('Failed to decode base64:', error);
         this.emit('error', new Error(`Failed to decode screenshot data: ${error}`));
       }
+    } else {
+      console.error('Screenshot markers not found. Start:', screenshotStartIndex, 'End:', screenshotEndIndex);
     }
   }
 
