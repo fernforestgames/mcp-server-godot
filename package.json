@@ -21,7 +21,8 @@
   "author": "Justin Spahr-Summers <justin@fernforestgames.com> (https://fernforestgames.com)",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-screenshots": "^0.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
