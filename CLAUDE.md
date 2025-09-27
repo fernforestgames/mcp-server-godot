@@ -45,3 +45,4 @@ npm run lint         # ESLint with TypeScript support
 - Separate stdout/stderr capture per project instance
 - Process lifecycle tracking (running/exited status with exit codes)
 - Proper cleanup on server shutdown for all running processes
+- Environment variable $GODOT_PATH contains the path to the `godot` executable

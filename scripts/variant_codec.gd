@@ -47,6 +47,9 @@ func encode_message(json_data: String):
 		quit(1)
 		return
 
+	# Fix types for debugger protocol
+	message_array = fix_debugger_message_types(message_array)
+
 	# Convert to Variant and encode
 	var variant_data = var_to_bytes(message_array)
 
@@ -91,3 +94,22 @@ func decode_message(hex_data: String):
 	# Output as JSON
 	print("JSON:" + JSON.stringify(decoded))
 	quit(0)
+
+func fix_debugger_message_types(message_array: Array) -> Array:
+	# Convert whole number floats to ints throughout the message
+	return convert_whole_floats_to_ints(message_array)
+
+func convert_whole_floats_to_ints(value):
+	match typeof(value):
+		TYPE_FLOAT:
+			var float_val = value as float
+			if float_val == floor(float_val):  # It's a whole number
+				return int(float_val)
+			return value
+		TYPE_ARRAY:
+			var result = []
+			for item in value:
+				result.append(convert_whole_floats_to_ints(item))
+			return result
+		_:
+			return value
