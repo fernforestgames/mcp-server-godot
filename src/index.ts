@@ -1,7 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ChildProcess, spawn } from "child_process";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 // Get Godot project path from command line arguments
 const projectPath = process.argv[2];
@@ -22,54 +23,86 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-let godotProcess: ChildProcess | null = null;
-let consoleOutput: string[] = [];
+// Types for project management
+interface ProjectRun {
+  id: string;
+  process: ChildProcess;
+  projectPath: string;
+  stdout: string[];
+  stderr: string[];
+  status: 'running' | 'exited';
+  exitCode?: number;
+  startTime: Date;
+  args?: string[];
+}
 
-// Tool to launch Godot project
-server.registerTool("launch_godot",
+// Storage for running projects
+const runningProjects = new Map<string, ProjectRun>();
+
+// Tool to run a Godot project
+server.registerTool("run_project",
   {
-    title: "Launch Godot Project",
-    description: "Launch the specified Godot project and begin capturing console output",
-    inputSchema: {}
-  },
-  async () => {
-    if (godotProcess) {
-      return {
-        content: [{ type: "text", text: "Godot project is already running" }]
-      };
+    title: "Run Godot Project",
+    description: "Start a Godot project and return a run ID for managing it",
+    inputSchema: {
+      projectPath: z.string().optional().describe("Path to the Godot project (defaults to command line argument)"),
+      args: z.array(z.string()).optional().describe("Optional arguments to pass to Godot on startup")
     }
+  },
+  async ({ projectPath: customProjectPath, args }) => {
+    const targetProjectPath = customProjectPath || projectPath;
+    const runId = randomUUID();
 
     try {
-      godotProcess = spawn(godotPath, ["--path", projectPath], {
+      const godotArgs = ["--path", targetProjectPath];
+      if (args) {
+        godotArgs.push(...args);
+      }
+
+      const process = spawn(godotPath, godotArgs, {
         stdio: ["inherit", "pipe", "pipe"]
       });
 
+      const projectRun: ProjectRun = {
+        id: runId,
+        process,
+        projectPath: targetProjectPath,
+        stdout: [],
+        stderr: [],
+        status: 'running',
+        startTime: new Date(),
+        ...(args && { args })
+      };
+
+      runningProjects.set(runId, projectRun);
+
       // Capture stdout
-      godotProcess.stdout?.on("data", (data) => {
+      process.stdout?.on("data", (data) => {
         const output = data.toString();
-        consoleOutput.push(`[STDOUT] ${output}`);
+        projectRun.stdout.push(output);
       });
 
       // Capture stderr
-      godotProcess.stderr?.on("data", (data) => {
+      process.stderr?.on("data", (data) => {
         const output = data.toString();
-        consoleOutput.push(`[STDERR] ${output}`);
+        projectRun.stderr.push(output);
       });
 
       // Handle process exit
-      godotProcess.on("exit", (code) => {
-        consoleOutput.push(`[SYSTEM] Godot process exited with code: ${code}`);
-        godotProcess = null;
+      process.on("exit", (code) => {
+        projectRun.status = 'exited';
+        projectRun.exitCode = code || 0;
       });
 
       // Handle process errors
-      godotProcess.on("error", (error) => {
-        consoleOutput.push(`[ERROR] Failed to start Godot: ${error.message}`);
-        godotProcess = null;
+      process.on("error", (error) => {
+        projectRun.stderr.push(`Failed to start Godot: ${error.message}`);
+        projectRun.status = 'exited';
+        projectRun.exitCode = 1;
       });
 
       return {
-        content: [{ type: "text", text: `Godot project launched from: ${projectPath}` }]
+        content: [{ type: "text", text: `Godot project started with run ID: ${runId}\nProject path: ${targetProjectPath}` }]
       };
     } catch (error) {
       return {
@@ -79,81 +112,158 @@ server.registerTool("launch_godot",
   }
 );
 
-// Tool to get console output
-server.registerTool("get_console_output",
+// Tool to stop a Godot project
+server.registerTool("stop_project",
   {
-    title: "Get Console Output",
-    description: "Retrieve the captured console output from the Godot process",
+    title: "Stop Godot Project",
+    description: "Stop a running Godot project by its run ID",
     inputSchema: {
-      lines: z.number().optional().describe("Number of recent lines to return (default: all)")
+      runId: z.string().describe("The run ID of the project to stop")
     }
   },
-  async ({ lines }) => {
-    if (consoleOutput.length === 0) {
+  async ({ runId }) => {
+    const projectRun = runningProjects.get(runId);
+    if (!projectRun) {
       return {
-        content: [{ type: "text", text: "No console output available" }]
+        content: [{ type: "text", text: `No project found with run ID: ${runId}` }]
       };
     }
 
-    const outputToReturn = lines ? consoleOutput.slice(-lines) : consoleOutput;
-    return {
-      content: [{ type: "text", text: outputToReturn.join("") }]
-    };
-  }
-);
-
-// Tool to stop Godot process
-server.registerTool("stop_godot",
-  {
-    title: "Stop Godot Project",
-    description: "Stop the running Godot process",
-    inputSchema: {}
-  },
-  async () => {
-    if (!godotProcess) {
+    if (projectRun.status === 'exited') {
       return {
-        content: [{ type: "text", text: "No Godot process is currently running" }]
+        content: [{ type: "text", text: `Project with run ID ${runId} has already exited` }]
       };
     }
 
     try {
-      godotProcess.kill();
+      projectRun.process.kill();
       return {
-        content: [{ type: "text", text: "Godot process stopped" }]
+        content: [{ type: "text", text: `Stopped project with run ID: ${runId}` }]
       };
     } catch (error) {
       return {
-        content: [{ type: "text", text: `Failed to stop Godot process: ${error}` }]
+        content: [{ type: "text", text: `Failed to stop project ${runId}: ${error}` }]
       };
     }
   }
 );
 
-// Tool to clear console output
-server.registerTool("clear_console",
+// Resources for project management
+server.registerResource("runs_list", "godot://runs/",
   {
-    title: "Clear Console Output",
-    description: "Clear the captured console output buffer",
-    inputSchema: {}
+    title: "Running Projects",
+    description: "List all currently running Godot projects",
+    mimeType: "application/json"
   },
-  async () => {
-    consoleOutput = [];
+  async (uri) => {
+    const runs = Array.from(runningProjects.values()).map(run => ({
+      id: run.id,
+      projectPath: run.projectPath,
+      status: run.status,
+      startTime: run.startTime.toISOString(),
+      exitCode: run.exitCode,
+      args: run.args
+    }));
+
     return {
-      content: [{ type: "text", text: "Console output cleared" }]
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(runs, null, 2)
+      }]
     };
   }
 );
 
+server.registerResource("project_stdout", new ResourceTemplate("godot://runs/{runId}/stdout", { list: undefined }),
+  {
+    title: "Project Standard Output",
+    description: "Get the standard output for a specific project run",
+    mimeType: "text/plain"
+  },
+  async (uri, { runId }) => {
+    const projectRun = runningProjects.get(runId as string);
+
+    if (!projectRun) {
+      throw new Error(`No project found with run ID: ${runId}`);
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: projectRun.stdout.join('')
+      }]
+    };
+  }
+);
+
+server.registerResource("project_stderr", new ResourceTemplate("godot://runs/{runId}/stderr", { list: undefined }),
+  {
+    title: "Project Standard Error",
+    description: "Get the standard error for a specific project run",
+    mimeType: "text/plain"
+  },
+  async (uri, { runId }) => {
+    const projectRun = runningProjects.get(runId as string);
+
+    if (!projectRun) {
+      throw new Error(`No project found with run ID: ${runId}`);
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: projectRun.stderr.join('')
+      }]
+    };
+  }
+);
+
+server.registerResource("project_status", new ResourceTemplate("godot://runs/{runId}/status", { list: undefined }),
+  {
+    title: "Project Status",
+    description: "Get the status information for a specific project run",
+    mimeType: "application/json"
+  },
+  async (uri, { runId }) => {
+    const projectRun = runningProjects.get(runId as string);
+
+    if (!projectRun) {
+      throw new Error(`No project found with run ID: ${runId}`);
+    }
+
+    const status = {
+      id: projectRun.id,
+      status: projectRun.status,
+      projectPath: projectRun.projectPath,
+      startTime: projectRun.startTime.toISOString(),
+      exitCode: projectRun.exitCode,
+      args: projectRun.args
+    };
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(status, null, 2)
+      }]
+    };
+  }
+);
+
+
 // Clean up on process exit
 process.on("exit", () => {
-  if (godotProcess) {
-    godotProcess.kill();
+  for (const projectRun of runningProjects.values()) {
+    if (projectRun.status === 'running') {
+      projectRun.process.kill();
+    }
   }
 });
 
 process.on("SIGINT", () => {
-  if (godotProcess) {
-    godotProcess.kill();
+  for (const projectRun of runningProjects.values()) {
+    if (projectRun.status === 'running') {
+      projectRun.process.kill();
+    }
   }
   process.exit(0);
 });
