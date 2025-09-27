@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "godot": {
+      "type": "stdio",
+      "command": "npm",
+      "args": [
+        "run",
+        "dev",
+        "--",
+        "godot-test-project"
+      ],
+      "env": {}
+    }
+  }
+}

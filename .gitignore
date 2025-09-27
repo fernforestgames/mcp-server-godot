@@ -135,5 +135,6 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# Local Claude Code settings
-.claude/
+# Local IDE settings
+.claude/settings.local.json
+.vscode/
