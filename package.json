@@ -2,24 +2,32 @@
   "name": "@fernforestgames/mcp-server-godot",
   "version": "0.2.0",
   "description": "MCP server for Godot integration",
+  "author": "Justin Spahr-Summers <justin@fernforestgames.com> (https://fernforestgames.com)",
+  "license": "MIT",
   "homepage": "https://github.com/fernforestgames/mcp-server-godot",
   "repository": "github:fernforestgames/mcp-server-godot",
-  "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && shx chmod +x dist/*.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "lint": "eslint src/**/*.ts"
   },
+  "bin": {
+    "mcp-server-godot": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "mcp",
     "godot",
     "game-engine",
     "typescript"
   ],
-  "author": "Justin Spahr-Summers <justin@fernforestgames.com> (https://fernforestgames.com)",
-  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "node-screenshots": "^0.2.1"
@@ -31,10 +39,8 @@
     "@typescript-eslint/parser": "^8.44.1",
     "eslint": "^9.36.0",
     "globals": "^16.4.0",
+    "shx": "^0.4.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2"
-  },
-  "engines": {
-    "node": ">=22.0.0"
   }
 }
