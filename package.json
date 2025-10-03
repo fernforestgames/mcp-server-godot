@@ -1,11 +1,14 @@
 {
   "name": "@fernforestgames/mcp-server-godot",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MCP server for Godot integration",
   "author": "Justin Spahr-Summers <justin@fernforestgames.com> (https://fernforestgames.com)",
   "license": "MIT",
   "homepage": "https://github.com/fernforestgames/mcp-server-godot",
-  "repository": "github:fernforestgames/mcp-server-godot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fernforestgames/mcp-server-godot.git"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
