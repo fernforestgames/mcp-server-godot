@@ -71,8 +71,9 @@ function findGodotFiles(directory: string | undefined, extension: string): strin
           results.push(relativePath.replace(/\\/g, '/'));
         }
       }
-    } catch (_error) {
+    } catch (error) {
       // Skip directories we can't read
+      console.error(`Warning: Failed to read directory ${dir}:`, error);
     }
   }
 
@@ -285,8 +286,9 @@ server.registerTool("search_scenes",
             });
           }
         }
-      } catch (_error) {
+      } catch (error) {
         // Skip scenes we can't parse
+        console.error(`Warning: Failed to parse scene ${scenePath}:`, error);
       }
     }
 
@@ -642,8 +644,9 @@ server.registerResource("resource_types_list", "godot://project/resourceTypes/",
         if (isGodotResource(parsed)) {
           typeSet.add(parsed.header.resourceType);
         }
-      } catch (_error) {
+      } catch (error) {
         // Skip files we can't parse
+        console.error(`Warning: Failed to parse resource ${resourcePath}:`, error);
       }
     }
 
@@ -669,8 +672,9 @@ server.registerResource("resources_by_type", new ResourceTemplate("godot://proje
         if (isGodotResource(parsed)) {
           typeSet.add(parsed.header.resourceType);
         }
-      } catch (_error) {
+      } catch (error) {
         // Skip files we can't parse
+        console.error(`Warning: Failed to parse resource ${resourcePath}:`, error);
       }
     }
 
@@ -699,8 +703,9 @@ server.registerResource("resources_by_type", new ResourceTemplate("godot://proje
         if (isGodotResource(parsed) && parsed.header.resourceType === typeStr) {
           matchingResources.push(resourcePath);
         }
-      } catch (_error) {
+      } catch (error) {
         // Skip files we can't parse
+        console.error(`Warning: Failed to parse resource ${resourcePath}:`, error);
       }
     }
 
@@ -739,8 +744,9 @@ server.registerResource("resources_property_by_type", new ResourceTemplate("godo
             });
           }
         }
-      } catch (_error) {
+      } catch (error) {
         // Skip files we can't parse
+        console.error(`Warning: Failed to parse resource ${resourcePath}:`, error);
       }
     }
 
