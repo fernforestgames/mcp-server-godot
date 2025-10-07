@@ -1,49 +1,26 @@
 #!/usr/bin/env node
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ChildProcess, spawn } from "child_process";
-import { randomUUID } from "crypto";
-import * as fs from "fs";
-import { Monitor, Window } from "node-screenshots";
-import * as path from "path";
 import { z } from "zod";
-
-// Get Godot project path from command line arguments
-const projectPath = process.argv[2];
-if (!projectPath) {
-  console.error("Error: Godot project path must be provided as a command line argument");
-  process.exit(1);
-}
-
-// Get Godot executable path from environment variable
-const godotPath = process.env['GODOT_PATH'];
-if (!godotPath) {
-  console.error("Error: GODOT_PATH environment variable must be set");
-  process.exit(1);
-}
+import "./config.js"; // Validate configuration on startup
+import { runProject } from "./handlers/tools/run-project.js";
+import { stopProject } from "./handlers/tools/stop-project.js";
+import { searchScenes } from "./handlers/tools/search-scenes.js";
+import { captureScreenshot } from "./handlers/tools/screenshot.js";
+import * as sceneResources from "./handlers/resources/scenes.js";
+import * as godotResources from "./handlers/resources/godot-resources.js";
+import * as runResources from "./handlers/resources/runs.js";
+import { type ProjectRun } from "./types.js";
 
 const server = new McpServer({
   name: "mcp-server-godot",
   version: "0.1.0",
 });
 
-// Types for project management
-interface ProjectRun {
-  id: string;
-  process: ChildProcess;
-  projectPath: string;
-  stdout: string[];
-  stderr: string[];
-  status: 'running' | 'exited';
-  exitCode?: number;
-  startTime: Date;
-  args?: string[];
-}
-
-// Storage for running projects
+// Storage for running projects (tied to MCP server lifetime)
 const runningProjects = new Map<string, ProjectRun>();
 
-// Tool to run a Godot project
+// Register tools
 server.registerTool("run_project",
   {
     title: "Run Godot Project",
@@ -53,70 +30,9 @@ server.registerTool("run_project",
       args: z.array(z.string()).optional().describe("Optional arguments to pass to Godot on startup")
     }
   },
-  async ({ projectPath: customProjectPath, args }) => {
-    const targetProjectPath = customProjectPath || projectPath;
-    const runId = randomUUID();
-
-    try {
-      const godotArgs = ["--path", targetProjectPath];
-      if (args) {
-        godotArgs.push(...args);
-      }
-
-      const process = spawn(godotPath, godotArgs, {
-        stdio: ["inherit", "pipe", "pipe"]
-      });
-
-      const projectRun: ProjectRun = {
-        id: runId,
-        process,
-        projectPath: targetProjectPath,
-        stdout: [],
-        stderr: [],
-        status: 'running',
-        startTime: new Date(),
-        ...(args && { args })
-      };
-
-      runningProjects.set(runId, projectRun);
-
-      // Capture stdout
-      process.stdout?.on("data", (data) => {
-        const output = data.toString();
-        projectRun.stdout.push(output);
-      });
-
-      // Capture stderr
-      process.stderr?.on("data", (data) => {
-        const output = data.toString();
-        projectRun.stderr.push(output);
-      });
-
-      // Handle process exit
-      process.on("exit", (code) => {
-        projectRun.status = 'exited';
-        projectRun.exitCode = code || 0;
-      });
-
-      // Handle process errors
-      process.on("error", (error) => {
-        projectRun.stderr.push(`Failed to start Godot: ${error.message}`);
-        projectRun.status = 'exited';
-        projectRun.exitCode = 1;
-      });
-
-      return {
-        content: [{ type: "text", text: `Godot project started with run ID: ${runId}\nProject path: ${targetProjectPath}` }]
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Failed to launch Godot: ${error}` }]
-      };
-    }
-  }
+  async (params) => runProject(runningProjects, params)
 );
 
-// Tool to stop a Godot project
 server.registerTool("stop_project",
   {
     title: "Stop Godot Project",
@@ -125,298 +41,175 @@ server.registerTool("stop_project",
       runId: z.string().describe("The run ID of the project to stop")
     }
   },
-  async ({ runId }) => {
-    const projectRun = runningProjects.get(runId);
-    if (!projectRun) {
-      return {
-        content: [{ type: "text", text: `No project found with run ID: ${runId}` }]
-      };
-    }
-
-    if (projectRun.status === 'exited') {
-      return {
-        content: [{ type: "text", text: `Project with run ID ${runId} has already exited` }]
-      };
-    }
-
-    try {
-      projectRun.process.kill();
-      return {
-        content: [{ type: "text", text: `Stopped project with run ID: ${runId}` }]
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Failed to stop project ${runId}: ${error}` }]
-      };
-    }
-  }
+  async (params) => stopProject(runningProjects, params)
 );
 
-// Tool to capture screenshot
+server.registerTool("search_scenes",
+  {
+    title: "Search Scenes",
+    description: "Find nodes or scenes matching criteria (by node type, name pattern, or property)",
+    inputSchema: {
+      nodeType: z.string().optional().describe("Filter by node type (e.g., 'CharacterBody2D')"),
+      namePattern: z.string().optional().describe("Filter by name pattern (case-insensitive substring match)"),
+      propertyName: z.string().optional().describe("Filter by nodes that have a specific property"),
+      propertyValue: z.string().optional().describe("Filter by nodes where property has a specific value (requires propertyName)"),
+      limit: z.number().default(100).describe("Maximum number of results to return"),
+      offset: z.number().default(0).describe("Number of results to skip for pagination")
+    }
+  },
+  searchScenes
+);
+
 server.registerTool("capture_screenshot",
   {
     title: "Capture Screenshot",
     description: "Capture a screenshot of the Godot game window or all monitors",
     inputSchema: {
-      target: z.enum(["godot", "all_monitors", "primary_monitor"]).optional().describe("Screenshot target: 'godot' for Godot window, 'all_monitors' for all monitors, 'primary_monitor' for primary monitor (default: godot)"),
-      format: z.enum(["png", "jpeg", "bmp"]).optional().describe("Image format (default: png)"),
+      target: z.enum(["godot", "all_monitors", "primary_monitor"]).default("godot").describe("Screenshot target: 'godot' for Godot window, 'all_monitors' for all monitors, 'primary_monitor' for primary monitor"),
+      format: z.enum(["png", "jpeg", "bmp"]).default("png").describe("Image format"),
       outputPath: z.string().optional().describe("Optional output file path. If not provided, returns base64 encoded image data")
     }
   },
-  async ({ target = "godot", format = "png", outputPath }) => {
-    try {
-      let imageBuffer: Buffer;
-      let screenshotInfo = "";
-
-      if (target === "godot") {
-        // Find Godot windows
-        const windows = Window.all();
-        const godotWindows = windows.filter(window => {
-          // Look for Godot application by app name instead of title
-          const appName = window.appName || "";
-          return appName.toLowerCase().includes("godot");
-        });
-
-        if (godotWindows.length === 0) {
-          return {
-            content: [{ type: "text", text: "No Godot windows found. Available windows:\n" +
-              windows.map(w => `- ${w.title || 'Untitled'} [${w.appName || 'Unknown'}] (${w.width}x${w.height})`).join("\n") }]
-          };
-        }
-
-        // Use the first Godot window found
-        const godotWindow = godotWindows[0];
-        if (!godotWindow) {
-          return {
-            content: [{ type: "text", text: "No Godot window available for capture" }]
-          };
-        }
-        const image = godotWindow.captureImageSync();
-
-        switch (format) {
-          case "png":
-            imageBuffer = image.toPngSync();
-            break;
-          case "jpeg":
-            imageBuffer = image.toJpegSync();
-            break;
-          case "bmp":
-            imageBuffer = image.toBmpSync();
-            break;
-        }
-
-        screenshotInfo = `Captured Godot window: ${godotWindow.title || 'Untitled'} (${godotWindow.width}x${godotWindow.height})`;
-      } else if (target === "all_monitors") {
-        const monitors = Monitor.all();
-        if (monitors.length === 0) {
-          return {
-            content: [{ type: "text", text: "No monitors found" }]
-          };
-        }
-
-        // Capture primary monitor for now (could be extended to capture all)
-        const primaryMonitor = monitors.find(m => m.isPrimary) || monitors[0];
-        if (!primaryMonitor) {
-          return {
-            content: [{ type: "text", text: "No primary monitor found" }]
-          };
-        }
-        const image = primaryMonitor.captureImageSync();
-
-        switch (format) {
-          case "png":
-            imageBuffer = image.toPngSync();
-            break;
-          case "jpeg":
-            imageBuffer = image.toJpegSync();
-            break;
-          case "bmp":
-            imageBuffer = image.toBmpSync();
-            break;
-        }
-
-        screenshotInfo = `Captured primary monitor (${primaryMonitor.width}x${primaryMonitor.height})`;
-      } else { // primary_monitor
-        const monitors = Monitor.all();
-        const primaryMonitor = monitors.find(m => m.isPrimary) || monitors[0];
-
-        if (!primaryMonitor) {
-          return {
-            content: [{ type: "text", text: "No primary monitor found" }]
-          };
-        }
-
-        const image = primaryMonitor.captureImageSync();
-
-        switch (format) {
-          case "png":
-            imageBuffer = image.toPngSync();
-            break;
-          case "jpeg":
-            imageBuffer = image.toJpegSync();
-            break;
-          case "bmp":
-            imageBuffer = image.toBmpSync();
-            break;
-        }
-
-        screenshotInfo = `Captured primary monitor (${primaryMonitor.width}x${primaryMonitor.height})`;
-      }
-
-      if (outputPath) {
-        // Save to file
-        const resolvedPath = path.resolve(outputPath);
-        fs.writeFileSync(resolvedPath, imageBuffer);
-        return {
-          content: [{ type: "text", text: `${screenshotInfo}\nScreenshot saved to: ${resolvedPath}` }]
-        };
-      } else {
-        // Return base64 encoded data
-        const base64Data = imageBuffer.toString('base64');
-        return {
-          content: [{
-            type: "image",
-            data: base64Data,
-            mimeType: `image/${format}`,
-          }]
-        };
-      }
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Failed to capture screenshot: ${error}` }]
-      };
-    }
-  }
+  captureScreenshot
 );
 
-// Resources for project management
+// Register scene resources
+server.registerResource("scenes_list", "godot://project/scenes/",
+  {
+    title: "Project Scenes",
+    description: "List all .tscn scene files in the Godot project",
+    mimeType: "application/json"
+  },
+  sceneResources.scenesList
+);
+
+server.registerResource("scene_data", new ResourceTemplate("godot://project/scenes/{scenePath...}", {
+  list: sceneResources.sceneDataList
+}),
+  {
+    title: "Scene Data",
+    description: "Get full parsed scene data including nodes, connections, and resources",
+    mimeType: "application/json"
+  },
+  sceneResources.sceneData
+);
+
+server.registerResource("scene_nodes", new ResourceTemplate("godot://project/scenes/{scenePath...}/nodes", {
+  list: sceneResources.sceneNodesList
+}),
+  {
+    title: "Scene Node Hierarchy",
+    description: "Get the node hierarchy with names, types, and parent relationships",
+    mimeType: "application/json"
+  },
+  sceneResources.sceneNodes
+);
+
+server.registerResource("scene_node_detail", new ResourceTemplate("godot://project/scenes/{scenePath...}/nodes/{nodePath...}", {
+  list: undefined
+}),
+  {
+    title: "Scene Node Details",
+    description: "Get detailed information about a specific node including all properties",
+    mimeType: "application/json"
+  },
+  sceneResources.sceneNodeDetail
+);
+
+// Register Godot resource files
+server.registerResource("resources_list", "godot://project/resources/",
+  {
+    title: "Project Resources",
+    description: "List all .tres resource files in the Godot project",
+    mimeType: "application/json"
+  },
+  godotResources.resourcesList
+);
+
+server.registerResource("resource_data", new ResourceTemplate("godot://project/resources/{resourcePath...}", {
+  list: godotResources.resourceDataList
+}),
+  {
+    title: "Resource Data",
+    description: "Get full parsed resource data",
+    mimeType: "application/json"
+  },
+  godotResources.resourceData
+);
+
+server.registerResource("resource_types_list", "godot://project/resourceTypes/",
+  {
+    title: "Resource Types",
+    description: "List all resource types found in the project",
+    mimeType: "application/json"
+  },
+  godotResources.resourceTypesList
+);
+
+server.registerResource("resources_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}", {
+  list: godotResources.resourcesByTypeList
+}),
+  {
+    title: "Resources by Type",
+    description: "List all resources of a specific type with their paths",
+    mimeType: "application/json"
+  },
+  godotResources.resourcesByType
+);
+
+server.registerResource("resources_property_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}/{property}", {
+  list: undefined
+}),
+  {
+    title: "Resource Property by Type",
+    description: "Get a specific property value from all resources of a given type",
+    mimeType: "application/json"
+  },
+  godotResources.resourcePropertyByType
+);
+
+// Register run management resources
 server.registerResource("runs_list", "godot://runs/",
   {
     title: "Running Projects",
     description: "List all currently running Godot projects",
     mimeType: "application/json"
   },
-  async (uri) => {
-    const runs = Array.from(runningProjects.values()).map(run => ({
-      id: run.id,
-      projectPath: run.projectPath,
-      status: run.status,
-      startTime: run.startTime.toISOString(),
-      exitCode: run.exitCode,
-      args: run.args
-    }));
-
-    return {
-      contents: [{
-        uri: uri.href,
-        text: JSON.stringify(runs, null, 2)
-      }]
-    };
-  }
+  async (uri) => runResources.runsList(uri, runningProjects)
 );
 
 server.registerResource("project_stdout", new ResourceTemplate("godot://runs/{runId}/stdout", {
-  list: async () => {
-    const resources = Array.from(runningProjects.keys()).map(runId => ({
-      uri: `godot://runs/${runId}/stdout`,
-      name: `stdout-${runId}`,
-      mimeType: "text/plain"
-    }));
-    return { resources };
-  }
+  list: runResources.projectStdoutList(runningProjects)
 }),
   {
     title: "Project Standard Output",
     description: "Get the standard output for a specific project run",
     mimeType: "text/plain"
   },
-  async (uri, { runId }) => {
-    const projectRun = runningProjects.get(runId as string);
-
-    if (!projectRun) {
-      throw new Error(`No project found with run ID: ${runId}`);
-    }
-
-    return {
-      contents: [{
-        uri: uri.href,
-        text: projectRun.stdout.join('')
-      }]
-    };
-  }
+  async (uri, params) => runResources.projectStdout(uri, params, runningProjects)
 );
 
 server.registerResource("project_stderr", new ResourceTemplate("godot://runs/{runId}/stderr", {
-  list: async () => {
-    const resources = Array.from(runningProjects.keys()).map(runId => ({
-      uri: `godot://runs/${runId}/stderr`,
-      name: `stderr-${runId}`,
-      mimeType: "text/plain"
-    }));
-    return { resources };
-  }
+  list: runResources.projectStderrList(runningProjects)
 }),
   {
     title: "Project Standard Error",
     description: "Get the standard error for a specific project run",
     mimeType: "text/plain"
   },
-  async (uri, { runId }) => {
-    const projectRun = runningProjects.get(runId as string);
-
-    if (!projectRun) {
-      throw new Error(`No project found with run ID: ${runId}`);
-    }
-
-    return {
-      contents: [{
-        uri: uri.href,
-        text: projectRun.stderr.join('')
-      }]
-    };
-  }
+  async (uri, params) => runResources.projectStderr(uri, params, runningProjects)
 );
 
 server.registerResource("project_status", new ResourceTemplate("godot://runs/{runId}/status", {
-  list: async () => {
-    const resources = Array.from(runningProjects.keys()).map(runId => ({
-      uri: `godot://runs/${runId}/status`,
-      name: `status-${runId}`,
-      mimeType: "application/json"
-    }));
-    return { resources };
-  }
+  list: runResources.projectStatusList(runningProjects)
 }),
   {
     title: "Project Status",
     description: "Get the status information for a specific project run",
     mimeType: "application/json"
   },
-  async (uri, { runId }) => {
-    const projectRun = runningProjects.get(runId as string);
-
-    if (!projectRun) {
-      throw new Error(`No project found with run ID: ${runId}`);
-    }
-
-    const status = {
-      id: projectRun.id,
-      status: projectRun.status,
-      projectPath: projectRun.projectPath,
-      startTime: projectRun.startTime.toISOString(),
-      exitCode: projectRun.exitCode,
-      args: projectRun.args
-    };
-
-    return {
-      contents: [{
-        uri: uri.href,
-        text: JSON.stringify(status, null, 2)
-      }]
-    };
-  }
+  async (uri, params) => runResources.projectStatus(uri, params, runningProjects)
 );
-
 
 // Clean up on process exit
 process.on("exit", () => {

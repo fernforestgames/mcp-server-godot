@@ -4,8 +4,8 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that pr
 
 ## Features
 
-- Tools to run, stop, and capture screenshots from Godot projects
-- Resources to monitor running projects, access output streams, and check exit status
+- **Tools**: Run/stop Godot projects, search scenes by node type/name/properties, capture screenshots
+- **Resources**: Browse scenes and .tres files, query by resource type, monitor running projects with output streams
 
 ## Prerequisites
 
