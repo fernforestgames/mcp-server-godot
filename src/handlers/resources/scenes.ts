@@ -26,8 +26,12 @@ export const sceneDataList = async () => {
   return { resources };
 };
 
-export const sceneData = async (uri: URL, { scenePath }: any) => {
-  const scenePathStr = (scenePath as string[]).join('/');
+export const sceneData = async (uri: URL, params: any) => {
+  const scenePath = params['scenePath...'];
+  if (!scenePath) {
+    throw new Error(`scenePath parameter is required, got: ${JSON.stringify(params)}`);
+  }
+  const scenePathStr = scenePath;
   const parsed = parseGodotFile(projectPath, scenePathStr);
 
   if (!isGodotScene(parsed)) {
@@ -53,8 +57,12 @@ export const sceneNodesList = async () => {
   return { resources };
 };
 
-export const sceneNodes = async (uri: URL, { scenePath }: any) => {
-  const scenePathStr = (scenePath as string[]).join('/');
+export const sceneNodes = async (uri: URL, params: any) => {
+  const scenePath = params['scenePath...'];
+  if (!scenePath) {
+    throw new Error(`scenePath parameter is required, got: ${JSON.stringify(params)}`);
+  }
+  const scenePathStr = scenePath;
   const parsed = parseGodotFile(projectPath, scenePathStr);
 
   if (!isGodotScene(parsed)) {
@@ -77,9 +85,14 @@ export const sceneNodes = async (uri: URL, { scenePath }: any) => {
   };
 };
 
-export const sceneNodeDetail = async (uri: URL, { scenePath, nodePath }: any) => {
-  const scenePathStr = (scenePath as string[]).join('/');
-  const nodePathStr = (nodePath as string[]).join('/');
+export const sceneNodeDetail = async (uri: URL, params: any) => {
+  const scenePath = params['scenePath...'];
+  const nodePath = params['nodePath...'];
+  if (!scenePath || !nodePath) {
+    throw new Error(`scenePath and nodePath parameters are required, got: ${JSON.stringify(params)}`);
+  }
+  const scenePathStr = scenePath;
+  const nodePathStr = nodePath;
   const parsed = parseGodotFile(projectPath, scenePathStr);
 
   if (!isGodotScene(parsed)) {

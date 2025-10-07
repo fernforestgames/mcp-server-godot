@@ -25,8 +25,12 @@ export const resourceDataList = async () => {
   return { resources: resourceList };
 };
 
-export const resourceData = async (uri: URL, { resourcePath }: any) => {
-  const resourcePathStr = (resourcePath as string[]).join('/');
+export const resourceData = async (uri: URL, params: any) => {
+  const resourcePath = params['resourcePath...'];
+  if (!resourcePath) {
+    throw new Error(`resourcePath parameter is required, got: ${JSON.stringify(params)}`);
+  }
+  const resourcePathStr = resourcePath;
   const parsed = parseGodotFile(projectPath, resourcePathStr);
 
   if (!isGodotResource(parsed)) {
