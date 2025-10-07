@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { isGodotResource, isGodotScene, parse, type Node as GodotNode, type GodotResource, type GodotScene } from "@fernforestgames/godot-resource-parser";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ChildProcess, spawn } from "child_process";
@@ -7,7 +8,6 @@ import * as fs from "fs";
 import { Monitor, Window } from "node-screenshots";
 import * as path from "path";
 import { z } from "zod";
-import { parse, isGodotScene, isGodotResource, type GodotScene, type GodotResource, type Node as GodotNode } from "@fernforestgames/godot-resource-parser/dist/index.js";
 
 // Get Godot project path from command line arguments
 const projectPath = process.argv[2];
