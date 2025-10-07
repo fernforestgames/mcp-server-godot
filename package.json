@@ -1,6 +1,6 @@
 {
   "name": "@fernforestgames/mcp-server-godot",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "MCP server for Godot integration",
   "author": "Justin Spahr-Summers <justin@fernforestgames.com> (https://fernforestgames.com)",
   "license": "MIT",
@@ -32,6 +32,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@fernforestgames/godot-resource-parser": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "node-screenshots": "^0.2.1"
   },
