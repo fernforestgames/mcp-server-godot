@@ -53,8 +53,8 @@ server.registerTool("search_scenes",
       namePattern: z.string().optional().describe("Filter by name pattern (case-insensitive substring match)"),
       propertyName: z.string().optional().describe("Filter by nodes that have a specific property"),
       propertyValue: z.string().optional().describe("Filter by nodes where property has a specific value (requires propertyName)"),
-      limit: z.number().optional().describe("Maximum number of results to return (default: 100)"),
-      offset: z.number().optional().describe("Number of results to skip for pagination (default: 0)")
+      limit: z.number().default(100).describe("Maximum number of results to return"),
+      offset: z.number().default(0).describe("Number of results to skip for pagination")
     }
   },
   searchScenes
@@ -65,8 +65,8 @@ server.registerTool("capture_screenshot",
     title: "Capture Screenshot",
     description: "Capture a screenshot of the Godot game window or all monitors",
     inputSchema: {
-      target: z.enum(["godot", "all_monitors", "primary_monitor"]).optional().describe("Screenshot target: 'godot' for Godot window, 'all_monitors' for all monitors, 'primary_monitor' for primary monitor (default: godot)"),
-      format: z.enum(["png", "jpeg", "bmp"]).optional().describe("Image format (default: png)"),
+      target: z.enum(["godot", "all_monitors", "primary_monitor"]).default("godot").describe("Screenshot target: 'godot' for Godot window, 'all_monitors' for all monitors, 'primary_monitor' for primary monitor"),
+      format: z.enum(["png", "jpeg", "bmp"]).default("png").describe("Image format"),
       outputPath: z.string().optional().describe("Optional output file path. If not provided, returns base64 encoded image data")
     }
   },
