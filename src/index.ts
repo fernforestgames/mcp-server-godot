@@ -7,6 +7,7 @@ import * as fs from "fs";
 import { Monitor, Window } from "node-screenshots";
 import * as path from "path";
 import { z } from "zod";
+import { parse, isGodotScene, isGodotResource, type GodotScene, type GodotResource, type Node as GodotNode } from "@fernforestgames/godot-resource-parser/dist/index.js";
 
 // Get Godot project path from command line arguments
 const projectPath = process.argv[2];
@@ -42,6 +43,80 @@ interface ProjectRun {
 
 // Storage for running projects
 const runningProjects = new Map<string, ProjectRun>();
+
+// Helper functions for file discovery
+function findGodotFiles(directory: string | undefined, extension: string): string[] {
+  if (!directory) {
+    return [];
+  }
+
+  const rootDir = directory; // Capture in const to satisfy TypeScript
+  const results: string[] = [];
+
+  function searchDir(dir: string) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          // Skip hidden directories and common non-project directories
+          if (!entry.name.startsWith('.') && entry.name !== 'addons') {
+            searchDir(fullPath);
+          }
+        } else if (entry.isFile() && entry.name.endsWith(extension)) {
+          // Return path relative to project root
+          const relativePath = path.relative(rootDir, fullPath);
+          results.push(relativePath.replace(/\\/g, '/'));
+        }
+      }
+    } catch (_error) {
+      // Skip directories we can't read
+    }
+  }
+
+  searchDir(rootDir);
+  return results;
+}
+
+function parseGodotFile(filePath: string): GodotScene | GodotResource {
+  if (!projectPath) {
+    throw new Error("Project path is not defined");
+  }
+  const fullPath = path.join(projectPath, filePath);
+  const content = fs.readFileSync(fullPath, 'utf-8');
+  return parse(content);
+}
+
+function getNodeByPath(scene: GodotScene, nodePath: string): GodotNode | undefined {
+  // Node path is like "." for root, "Player" for child, "Player/Sprite" for nested
+  if (nodePath === ".") {
+    return scene.nodes.find((node: GodotNode) => !node.parent || node.parent === ".");
+  }
+
+  return scene.nodes.find((node: GodotNode) => {
+    if (node.parent === ".") {
+      return node.name === nodePath;
+    }
+    // For nested nodes, construct full path
+    const fullNodePath = getFullNodePath(scene, node);
+    return fullNodePath === nodePath;
+  });
+}
+
+function getFullNodePath(scene: GodotScene, node: GodotNode): string {
+  if (!node.parent || node.parent === ".") {
+    return node.name;
+  }
+
+  const parentNode = scene.nodes.find((n: GodotNode) => n.name === node.parent);
+  if (!parentNode) {
+    return node.name;
+  }
+
+  return `${getFullNodePath(scene, parentNode)}/${node.name}`;
+}
 
 // Tool to run a Godot project
 server.registerTool("run_project",
@@ -149,6 +224,91 @@ server.registerTool("stop_project",
         content: [{ type: "text", text: `Failed to stop project ${runId}: ${error}` }]
       };
     }
+  }
+);
+
+// Tool to search scenes
+server.registerTool("search_scenes",
+  {
+    title: "Search Scenes",
+    description: "Find nodes or scenes matching criteria (by node type, name pattern, or property)",
+    inputSchema: {
+      nodeType: z.string().optional().describe("Filter by node type (e.g., 'CharacterBody2D')"),
+      namePattern: z.string().optional().describe("Filter by name pattern (case-insensitive substring match)"),
+      propertyName: z.string().optional().describe("Filter by nodes that have a specific property"),
+      propertyValue: z.string().optional().describe("Filter by nodes where property has a specific value (requires propertyName)"),
+      limit: z.number().optional().describe("Maximum number of results to return (default: 100)"),
+      offset: z.number().optional().describe("Number of results to skip for pagination (default: 0)")
+    }
+  },
+  async ({ nodeType, namePattern, propertyName, propertyValue, limit = 100, offset = 0 }) => {
+    const scenes = findGodotFiles(projectPath, '.tscn');
+    const results: Array<{ scene: string; node: string; type: string; properties?: Record<string, unknown> }> = [];
+
+    for (const scenePath of scenes) {
+      try {
+        const parsed = parseGodotFile(scenePath);
+        if (!isGodotScene(parsed)) continue;
+
+        for (const node of parsed.nodes) {
+          let matches = true;
+
+          // Filter by node type
+          if (nodeType && node.type !== nodeType) {
+            matches = false;
+          }
+
+          // Filter by name pattern (case-insensitive)
+          if (namePattern && !node.name.toLowerCase().includes(namePattern.toLowerCase())) {
+            matches = false;
+          }
+
+          // Filter by property name
+          if (propertyName && !(propertyName in node.properties)) {
+            matches = false;
+          }
+
+          // Filter by property value
+          if (propertyValue && propertyName) {
+            const propValue = node.properties[propertyName];
+            if (propValue !== propertyValue && String(propValue) !== propertyValue) {
+              matches = false;
+            }
+          }
+
+          if (matches) {
+            results.push({
+              scene: scenePath,
+              node: getFullNodePath(parsed, node),
+              type: node.type,
+              ...(Object.keys(node.properties).length > 0 && { properties: node.properties })
+            });
+          }
+        }
+      } catch (_error) {
+        // Skip scenes we can't parse
+      }
+    }
+
+    const totalResults = results.length;
+    const paginatedResults = results.slice(offset, offset + limit);
+    const hasMore = (offset + limit) < totalResults;
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          results: paginatedResults,
+          pagination: {
+            total: totalResults,
+            offset,
+            limit,
+            returned: paginatedResults.length,
+            hasMore
+          }
+        }, null, 2)
+      }]
+    };
   }
 );
 
@@ -286,6 +446,310 @@ server.registerTool("capture_screenshot",
         content: [{ type: "text", text: `Failed to capture screenshot: ${error}` }]
       };
     }
+  }
+);
+
+// Scene structure resources
+server.registerResource("scenes_list", "godot://project/scenes/",
+  {
+    title: "Project Scenes",
+    description: "List all .tscn scene files in the Godot project",
+    mimeType: "application/json"
+  },
+  async (uri) => {
+    const scenes = findGodotFiles(projectPath, '.tscn');
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(scenes, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("scene_data", new ResourceTemplate("godot://project/scenes/{scenePath...}", {
+  list: async () => {
+    const scenes = findGodotFiles(projectPath, '.tscn');
+    const resources = scenes.map(scenePath => ({
+      uri: `godot://project/scenes/${scenePath}`,
+      name: `scene-${scenePath}`,
+      mimeType: "application/json"
+    }));
+    return { resources };
+  }
+}),
+  {
+    title: "Scene Data",
+    description: "Get full parsed scene data including nodes, connections, and resources",
+    mimeType: "application/json"
+  },
+  async (uri, { scenePath }) => {
+    const scenePathStr = (scenePath as string[]).join('/');
+    const parsed = parseGodotFile(scenePathStr);
+
+    if (!isGodotScene(parsed)) {
+      throw new Error(`File ${scenePathStr} is not a scene file`);
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(parsed, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("scene_nodes", new ResourceTemplate("godot://project/scenes/{scenePath...}/nodes", {
+  list: async () => {
+    const scenes = findGodotFiles(projectPath, '.tscn');
+    const resources = scenes.map(scenePath => ({
+      uri: `godot://project/scenes/${scenePath}/nodes`,
+      name: `nodes-${scenePath}`,
+      mimeType: "application/json"
+    }));
+    return { resources };
+  }
+}),
+  {
+    title: "Scene Node Hierarchy",
+    description: "Get the node hierarchy with names, types, and parent relationships",
+    mimeType: "application/json"
+  },
+  async (uri, { scenePath }) => {
+    const scenePathStr = (scenePath as string[]).join('/');
+    const parsed = parseGodotFile(scenePathStr);
+
+    if (!isGodotScene(parsed)) {
+      throw new Error(`File ${scenePathStr} is not a scene file`);
+    }
+
+    const nodeHierarchy = parsed.nodes.map((node: GodotNode) => ({
+      name: node.name,
+      type: node.type,
+      parent: node.parent,
+      fullPath: getFullNodePath(parsed, node),
+      hasProperties: Object.keys(node.properties).length > 0
+    }));
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(nodeHierarchy, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("scene_node_detail", new ResourceTemplate("godot://project/scenes/{scenePath...}/nodes/{nodePath...}", {
+  list: undefined
+}),
+  {
+    title: "Scene Node Details",
+    description: "Get detailed information about a specific node including all properties",
+    mimeType: "application/json"
+  },
+  async (uri, { scenePath, nodePath }) => {
+    const scenePathStr = (scenePath as string[]).join('/');
+    const nodePathStr = (nodePath as string[]).join('/');
+    const parsed = parseGodotFile(scenePathStr);
+
+    if (!isGodotScene(parsed)) {
+      throw new Error(`File ${scenePathStr} is not a scene file`);
+    }
+
+    const node = getNodeByPath(parsed, nodePathStr);
+    if (!node) {
+      throw new Error(`Node ${nodePathStr} not found in scene ${scenePathStr}`);
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(node, null, 2)
+      }]
+    };
+  }
+);
+
+// Resource introspection resources
+server.registerResource("resources_list", "godot://project/resources/",
+  {
+    title: "Project Resources",
+    description: "List all .tres resource files in the Godot project",
+    mimeType: "application/json"
+  },
+  async (uri) => {
+    const resources = findGodotFiles(projectPath, '.tres');
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(resources, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("resource_data", new ResourceTemplate("godot://project/resources/{resourcePath...}", {
+  list: async () => {
+    const resources = findGodotFiles(projectPath, '.tres');
+    const resourceList = resources.map(resourcePath => ({
+      uri: `godot://project/resources/${resourcePath}`,
+      name: `resource-${resourcePath}`,
+      mimeType: "application/json"
+    }));
+    return { resources: resourceList };
+  }
+}),
+  {
+    title: "Resource Data",
+    description: "Get full parsed resource data",
+    mimeType: "application/json"
+  },
+  async (uri, { resourcePath }) => {
+    const resourcePathStr = (resourcePath as string[]).join('/');
+    const parsed = parseGodotFile(resourcePathStr);
+
+    if (!isGodotResource(parsed)) {
+      throw new Error(`File ${resourcePathStr} is not a resource file`);
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(parsed, null, 2)
+      }]
+    };
+  }
+);
+
+// Resource type query resources
+server.registerResource("resource_types_list", "godot://project/resourceTypes/",
+  {
+    title: "Resource Types",
+    description: "List all resource types found in the project",
+    mimeType: "application/json"
+  },
+  async (uri) => {
+    const resources = findGodotFiles(projectPath, '.tres');
+    const typeSet = new Set<string>();
+
+    for (const resourcePath of resources) {
+      try {
+        const parsed = parseGodotFile(resourcePath);
+        if (isGodotResource(parsed)) {
+          typeSet.add(parsed.header.resourceType);
+        }
+      } catch (_error) {
+        // Skip files we can't parse
+      }
+    }
+
+    const types = Array.from(typeSet).sort();
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(types, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("resources_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}", {
+  list: async () => {
+    const resources = findGodotFiles(projectPath, '.tres');
+    const typeSet = new Set<string>();
+
+    for (const resourcePath of resources) {
+      try {
+        const parsed = parseGodotFile(resourcePath);
+        if (isGodotResource(parsed)) {
+          typeSet.add(parsed.header.resourceType);
+        }
+      } catch (_error) {
+        // Skip files we can't parse
+      }
+    }
+
+    const resourceList = Array.from(typeSet).map(type => ({
+      uri: `godot://project/resourceTypes/${type}`,
+      name: `type-${type}`,
+      mimeType: "application/json"
+    }));
+
+    return { resources: resourceList };
+  }
+}),
+  {
+    title: "Resources by Type",
+    description: "List all resources of a specific type with their paths",
+    mimeType: "application/json"
+  },
+  async (uri, { type }) => {
+    const typeStr = type as string;
+    const resources = findGodotFiles(projectPath, '.tres');
+    const matchingResources: string[] = [];
+
+    for (const resourcePath of resources) {
+      try {
+        const parsed = parseGodotFile(resourcePath);
+        if (isGodotResource(parsed) && parsed.header.resourceType === typeStr) {
+          matchingResources.push(resourcePath);
+        }
+      } catch (_error) {
+        // Skip files we can't parse
+      }
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(matchingResources, null, 2)
+      }]
+    };
+  }
+);
+
+server.registerResource("resources_property_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}/{property}", {
+  list: undefined
+}),
+  {
+    title: "Resource Property by Type",
+    description: "Get a specific property value from all resources of a given type",
+    mimeType: "application/json"
+  },
+  async (uri, { type, property }) => {
+    const typeStr = type as string;
+    const propertyStr = property as string;
+    const resources = findGodotFiles(projectPath, '.tres');
+    const results: Array<{ path: string; value: unknown }> = [];
+
+    for (const resourcePath of resources) {
+      try {
+        const parsed = parseGodotFile(resourcePath);
+        if (isGodotResource(parsed) && parsed.header.resourceType === typeStr) {
+          // Check if property exists in resource section
+          if (parsed.resource?.properties[propertyStr] !== undefined) {
+            results.push({
+              path: resourcePath,
+              value: parsed.resource.properties[propertyStr]
+            });
+          }
+        }
+      } catch (_error) {
+        // Skip files we can't parse
+      }
+    }
+
+    return {
+      contents: [{
+        uri: uri.href,
+        text: JSON.stringify(results, null, 2)
+      }]
+    };
   }
 );
 
