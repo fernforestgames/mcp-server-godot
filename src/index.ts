@@ -157,7 +157,7 @@ server.registerResource("resources_by_type", new ResourceTemplate("godot://proje
   godotResources.resourcesByType
 );
 
-server.registerResource("resources_property_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}/{property}", {
+server.registerResource("resources_property_by_type", new ResourceTemplate("godot://project/resourceTypes/{type}/properties/{property}", {
   list: undefined
 }),
   {
