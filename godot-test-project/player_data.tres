@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="CustomData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://custom_data.gd" id="1_a2b3c"]
+
+[resource]
+script = ExtResource("1_a2b3c")
+player_name = "Hero"
+score = 1500
+level = 5
+inventory = Array[String](["sword", "shield", "potion"])
+stats = {
+"health": 100,
+"mana": 50,
+"strength": 15
+}
