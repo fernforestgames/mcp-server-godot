@@ -54,7 +54,9 @@ export const resourceTypesList = async (uri: URL) => {
     try {
       const parsed = parseGodotFile(projectPath, resourcePath);
       if (isGodotResource(parsed)) {
-        typeSet.add(parsed.header.resourceType);
+        // Prefer scriptClass if available, otherwise use resourceType
+        const type = (parsed.header as any).scriptClass || parsed.header.resourceType;
+        typeSet.add(type);
       }
     } catch (error) {
       // Skip files we can't parse
@@ -81,7 +83,9 @@ export const resourcesByTypeList = async () => {
     try {
       const parsed = parseGodotFile(projectPath, resourcePath);
       if (isGodotResource(parsed)) {
-        typeSet.add(parsed.header.resourceType);
+        // Prefer scriptClass if available, otherwise use resourceType
+        const type = (parsed.header as any).scriptClass || parsed.header.resourceType;
+        typeSet.add(type);
       }
     } catch (error) {
       // Skip files we can't parse
@@ -106,8 +110,12 @@ export const resourcesByType = async (uri: URL, { type }: any) => {
   for (const resourcePath of resources) {
     try {
       const parsed = parseGodotFile(projectPath, resourcePath);
-      if (isGodotResource(parsed) && parsed.header.resourceType === typeStr) {
-        matchingResources.push(resourcePath);
+      if (isGodotResource(parsed)) {
+        // Match against scriptClass if available, otherwise use resourceType
+        const resourceType = (parsed.header as any).scriptClass || parsed.header.resourceType;
+        if (resourceType === typeStr) {
+          matchingResources.push(resourcePath);
+        }
       }
     } catch (error) {
       // Skip files we can't parse
@@ -132,13 +140,17 @@ export const resourcePropertyByType = async (uri: URL, { type, property }: any) 
   for (const resourcePath of resources) {
     try {
       const parsed = parseGodotFile(projectPath, resourcePath);
-      if (isGodotResource(parsed) && parsed.header.resourceType === typeStr) {
-        // Check if property exists in resource section
-        if (parsed.resource?.properties[propertyStr] !== undefined) {
-          results.push({
-            path: resourcePath,
-            value: parsed.resource.properties[propertyStr]
-          });
+      if (isGodotResource(parsed)) {
+        // Match against scriptClass if available, otherwise use resourceType
+        const resourceType = (parsed.header as any).scriptClass || parsed.header.resourceType;
+        if (resourceType === typeStr) {
+          // Check if property exists in resource section
+          if (parsed.resource?.properties[propertyStr] !== undefined) {
+            results.push({
+              path: resourcePath,
+              value: parsed.resource.properties[propertyStr]
+            });
+          }
         }
       }
     } catch (error) {
