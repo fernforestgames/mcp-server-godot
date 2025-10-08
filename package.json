@@ -32,7 +32,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@fernforestgames/godot-resource-parser": "^0.1.1",
+    "@fernforestgames/godot-resource-parser": "^0.1.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "node-screenshots": "^0.2.1"
   },
