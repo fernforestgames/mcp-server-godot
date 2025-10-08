@@ -137,6 +137,17 @@ server.registerResource("resource_data", new ResourceTemplate("godot://project/r
   godotResources.resourceData
 );
 
+server.registerResource("resource_property", new ResourceTemplate("godot://project/resources/{resourcePath...}/properties/{property}", {
+  list: undefined
+}),
+  {
+    title: "Resource Property",
+    description: "Get a specific property value from a resource file",
+    mimeType: "application/json"
+  },
+  godotResources.resourceProperty
+);
+
 server.registerResource("resource_types_list", "godot://project/resourceTypes/",
   {
     title: "Resource Types",

@@ -166,3 +166,35 @@ export const resourcePropertyByType = async (uri: URL, { type, property }: any) 
     }]
   };
 };
+
+export const resourceProperty = async (uri: URL, params: any) => {
+  const resourcePath = params['resourcePath...'];
+  const property = params.property;
+
+  if (!resourcePath) {
+    throw new Error(`resourcePath parameter is required, got: ${JSON.stringify(params)}`);
+  }
+  if (!property) {
+    throw new Error(`property parameter is required, got: ${JSON.stringify(params)}`);
+  }
+
+  const resourcePathStr = resourcePath;
+  const propertyStr = property as string;
+  const parsed = parseGodotFile(projectPath, resourcePathStr);
+
+  if (!isGodotResource(parsed)) {
+    throw new Error(`File ${resourcePathStr} is not a resource file`);
+  }
+
+  // Check if property exists in resource section
+  if (parsed.resource?.properties[propertyStr] === undefined) {
+    throw new Error(`Property ${propertyStr} not found in resource ${resourcePathStr}`);
+  }
+
+  return {
+    contents: [{
+      uri: uri.href,
+      text: JSON.stringify(parsed.resource.properties[propertyStr], null, 2)
+    }]
+  };
+};
