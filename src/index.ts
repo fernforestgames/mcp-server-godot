@@ -63,14 +63,14 @@ server.registerTool("search_scenes",
 server.registerTool("capture_screenshot",
   {
     title: "Capture Screenshot",
-    description: "Capture a screenshot of the Godot game window or all monitors",
+    description: "Capture a screenshot of the Godot game viewport. Requires the MCP Bridge addon to be installed in the project.",
     inputSchema: {
-      target: z.enum(["godot", "all_monitors", "primary_monitor"]).default("godot").describe("Screenshot target: 'godot' for Godot window, 'all_monitors' for all monitors, 'primary_monitor' for primary monitor"),
-      format: z.enum(["png", "jpeg", "bmp"]).default("png").describe("Image format"),
+      runId: z.string().describe("The run ID of the project to capture"),
+      format: z.enum(["png", "jpeg"]).default("png").describe("Image format"),
       outputPath: z.string().optional().describe("Optional output file path. If not provided, returns base64 encoded image data")
     }
   },
-  captureScreenshot
+  async (params) => captureScreenshot(runningProjects, params)
 );
 
 // Register scene resources

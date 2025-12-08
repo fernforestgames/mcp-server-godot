@@ -14,13 +14,7 @@ interface PendingRequest {
   timeout: NodeJS.Timeout;
 }
 
-export interface BridgeClientEvents {
-  event: (msg: BridgeMessage) => void;
-  disconnected: () => void;
-  stdout: (text: string) => void;
-}
-
-export class BridgeClient extends EventEmitter<BridgeClientEvents> {
+export class BridgeClient extends EventEmitter {
   private process: ChildProcess;
   private buffer: string = "";
   private pendingRequests: Map<string, PendingRequest> = new Map();
