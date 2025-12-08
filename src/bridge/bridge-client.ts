@@ -11,7 +11,7 @@ import type { BridgeMessage, HandshakeResponse } from "./types.js";
 interface PendingRequest {
   resolve: (response: BridgeMessage) => void;
   reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
+  timeout: ReturnType<typeof setTimeout>;
 }
 
 export class BridgeClient extends EventEmitter {

@@ -87,7 +87,7 @@ export async function runProject(
         if (connected) {
           console.error(`[MCP Bridge] Connected to addon v${bridge.version}, capabilities: ${bridge.capabilities.join(", ")}`);
         }
-      } catch (error) {
+      } catch {
         // Handshake failed - addon likely not installed, which is fine
         projectRun.bridgeConnected = false;
       }
