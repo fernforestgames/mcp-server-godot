@@ -18,6 +18,11 @@ export async function stopProject(
   }
 
   try {
+    // Clean up bridge client
+    if (projectRun.bridge) {
+      projectRun.bridge.destroy();
+    }
+
     projectRun.process.kill();
     return {
       content: [{ type: "text" as const, text: `Stopped project with run ID: ${runId}` }]

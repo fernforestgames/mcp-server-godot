@@ -1,4 +1,5 @@
 import { ChildProcess } from "child_process";
+import type { BridgeClient } from "./bridge/bridge-client.js";
 
 // Types for project management
 export interface ProjectRun {
@@ -11,4 +12,6 @@ export interface ProjectRun {
   exitCode?: number;
   startTime: Date;
   args?: string[];
+  bridge?: BridgeClient;
+  bridgeConnected: boolean;
 }
