@@ -242,8 +242,8 @@ export async function sendInputMouseMotion(
     runId: string;
     relativeX: number;
     relativeY: number;
-    x?: number | undefined;
-    y?: number | undefined;
+    x?: number;
+    y?: number;
   }
 ) {
   const project = runningProjects.get(runId);

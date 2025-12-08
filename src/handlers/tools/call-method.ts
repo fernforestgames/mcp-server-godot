@@ -11,7 +11,7 @@ export async function callMethod(
     runId: string;
     nodePath: string;
     method: string;
-    args?: unknown[] | undefined;
+    args?: unknown[];
   }
 ) {
   const project = runningProjects.get(runId);
