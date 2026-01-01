@@ -34,7 +34,10 @@
   "dependencies": {
     "@fernforestgames/godot-resource-parser": "^0.1.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "env-paths": "^3.0.0",
+    "fast-xml-parser": "^5.3.3",
+    "tar": "^7.5.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
