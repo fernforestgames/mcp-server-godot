@@ -1,5 +1,6 @@
 // MCP tool handler for getting full Godot class documentation
 import { docsIndex } from '../../docs/index.js';
+import { formatClassAsText } from '../../docs/format.js';
 
 export async function getGodotClass({
   className,
@@ -9,39 +10,36 @@ export async function getGodotClass({
   try {
     await docsIndex.ensureInitialized();
 
-    const godotClass = docsIndex.getClass(className);
+    let godotClass = docsIndex.getClass(className);
 
+    // Try case-insensitive search if not found
     if (!godotClass) {
-      // Try case-insensitive search
       const allClasses = docsIndex.getAllClassNames();
       const match = allClasses.find(c => c.toLowerCase() === className.toLowerCase());
 
       if (match) {
-        const matchedClass = docsIndex.getClass(match);
-        if (matchedClass) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify(matchedClass, null, 2)
-            }]
-          };
-        }
+        godotClass = docsIndex.getClass(match);
       }
+    }
 
+    if (!godotClass) {
       // Suggest similar classes
+      const allClasses = docsIndex.getAllClassNames();
       const similar = allClasses
         .filter(c => c.toLowerCase().includes(className.toLowerCase()) ||
                      className.toLowerCase().includes(c.toLowerCase().slice(0, 4)))
         .slice(0, 5);
 
+      let errorMsg = `Class '${className}' not found.`;
+      if (similar.length > 0) {
+        errorMsg += ` Did you mean: ${similar.join(', ')}?`;
+      }
+      errorMsg += ' Use search_godot_docs to find the correct class name.';
+
       return {
         content: [{
           type: "text" as const,
-          text: JSON.stringify({
-            error: `Class '${className}' not found`,
-            suggestions: similar.length > 0 ? similar : undefined,
-            hint: 'Use search_godot_docs to find the correct class name',
-          }, null, 2)
+          text: errorMsg
         }]
       };
     }
@@ -49,7 +47,7 @@ export async function getGodotClass({
     return {
       content: [{
         type: "text" as const,
-        text: JSON.stringify(godotClass, null, 2)
+        text: formatClassAsText(godotClass)
       }]
     };
   } catch (error) {
@@ -57,10 +55,7 @@ export async function getGodotClass({
     return {
       content: [{
         type: "text" as const,
-        text: JSON.stringify({
-          error: `Failed to get class documentation: ${message}`,
-          className,
-        }, null, 2)
+        text: `Failed to get class documentation: ${message}`
       }]
     };
   }
