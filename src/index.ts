@@ -13,6 +13,8 @@ import { setProperty } from "./handlers/tools/set-property.js";
 import { callMethod } from "./handlers/tools/call-method.js";
 import { changeScene } from "./handlers/tools/change-scene.js";
 import { sendInputAction, sendInputKey, sendInputMouseButton, sendInputMouseMotion } from "./handlers/tools/send-input.js";
+import { searchGodotDocs } from "./handlers/tools/search-docs.js";
+import { getGodotClass } from "./handlers/tools/get-class.js";
 import * as sceneResources from "./handlers/resources/scenes.js";
 import * as godotResources from "./handlers/resources/godot-resources.js";
 import * as runResources from "./handlers/resources/runs.js";
@@ -202,6 +204,30 @@ server.registerTool("send_input_mouse_motion",
     }
   },
   async (params) => sendInputMouseMotion(runningProjects, params)
+);
+
+// Documentation search tools
+server.registerTool("search_godot_docs",
+  {
+    title: "Search Godot Documentation",
+    description: "Search the Godot engine documentation for classes, methods, properties, signals, and constants. On first use, downloads docs matching your Godot version.",
+    inputSchema: {
+      query: z.string().describe("Search query (class name, method name, or keyword)"),
+      limit: z.number().default(10).describe("Maximum number of results to return")
+    }
+  },
+  searchGodotDocs
+);
+
+server.registerTool("get_godot_class",
+  {
+    title: "Get Godot Class Documentation",
+    description: "Get the full documentation for a specific Godot class, including all methods, properties, signals, and constants.",
+    inputSchema: {
+      className: z.string().describe("Exact class name (e.g., 'RigidBody3D', 'Node', 'Control')")
+    }
+  },
+  getGodotClass
 );
 
 // Register scene resources
