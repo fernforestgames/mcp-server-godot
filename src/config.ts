@@ -1,4 +1,5 @@
 // Configuration validation and setup
+import 'dotenv/config';
 
 // Get Godot project path from command line arguments, default to cwd
 const projectPath = process.argv[2] || process.cwd();
@@ -10,4 +11,4 @@ if (!godotPath) {
   process.exit(1);
 }
 
-export { projectPath, godotPath };
+export { godotPath, projectPath };
